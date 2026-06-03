@@ -8,9 +8,10 @@ Use the Codex "Add plugin marketplace" dialog:
 
 - Source: `YGuo-2/spec-coding-marketplace`
 - Git ref: `main`
-- Sparse path: `plugins/codex`
+- Sparse path: leave empty
 
-The marketplace file is at `plugins/codex/marketplace.json`, and the plugin source is at `plugins/codex/plugins/spec-coding`.
+Codex expects the marketplace manifest at `.agents/plugins/marketplace.json`.
+The plugin source is at `plugins/spec-coding`.
 
 ## Plugin
 

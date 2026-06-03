@@ -51,6 +51,8 @@ Generate:
 - `docs/specs/architecture.md`: implementation blueprint, component boundaries, data model, API/interface shape, dependencies, error handling, security, and performance boundaries
 - `docs/specs/tasks.md`: ordered atomic tasks using `- [ ]`, with verification criteria, estimate, and dependencies
 
+Before review, replace all template placeholders with concrete content. If a template section does not apply, state that explicitly with the reason instead of leaving placeholder text.
+
 After generation, ask the human to review the artifacts. The approval phrase for implementation is:
 
 ```text
@@ -60,19 +62,24 @@ After generation, ask the human to review the artifacts. The approval phrase for
 Suggested validation:
 
 ```bash
-python scripts/validate_spec.py docs/specs/ --workflow requirements-first
+python <plugin-root>/scripts/validate_spec.py docs/specs/ --workflow requirements-first
 ```
+
+This is a structural integrity check only. Passing validation does not approve implementation; implementation still requires the exact approval phrase.
 
 ## State C: Controlled Implementation
 
 Only enter this state after explicit approval.
+
+When the approval phrase is received, update any generated status or approval-record fields in the spec artifacts before implementation.
 
 Implementation rules:
 
 - Read `docs/specs/product.md`, `docs/specs/architecture.md`, and `docs/specs/tasks.md`.
 - Select only the first unchecked task in `tasks.md`.
 - Implement only that task.
-- Add or update tests that prove the approved acceptance criteria.
+- Satisfy the selected task's verification criteria. Add or update acceptance tests when the task touches user-visible behavior; all approved acceptance criteria must be covered before the feature is complete.
+- If implementation reveals that `product.md`, `architecture.md`, or `tasks.md` must change, stop code work, return to State B, update the specs, rerun validation, and wait for `批准规范，启动执行` again before continuing.
 - Run verification and perform at most three self-healing loops.
 - After passing verification, mark that task as `- [x]`.
 - Provide a commit message suggestion in this form:

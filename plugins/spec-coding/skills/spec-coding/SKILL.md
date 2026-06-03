@@ -23,7 +23,7 @@ Then print the route decision:
 - 路径：Feature / Requirements-First | Feature / Design-First | Bugfix | 待澄清
 - Design-First 粒度：n/a | High Level Design | Low Level Design
 - 原因：[一句话说明判断依据]
-- 下一步：[需求澄清 | Design-First 澄清 | Bug 分析澄清 | 规范生成]
+- 下一步：[分流澄清 | 需求澄清 | Design-First 澄清 | Bug 分析澄清 | 规范生成]
 ```
 
 Immediately after the route block, print one branch line:
@@ -57,16 +57,16 @@ If the route is still unclear:
 - Do not invent missing boundaries, compatibility rules, security constraints, or failure modes. Ask or record them as assumptions.
 - Planning artifacts must be written to `docs/specs/`; chat-only plans are not the source of truth.
 - Do not mix Feature and Bugfix. If a fix adds new user-visible capability or changes product scope, reroute to Feature.
-- Do not mix Requirements-First and Design-First. Use Design-First only when the user starts from technical design, architecture, ADRs, or fixed technical constraints.
+- Do not mix Requirements-First and Design-First. Use Design-First only when fixed technical design, architecture, ADRs, or technical constraints are the primary starting point; ordinary stack, compatibility, or schema constraints can be recorded in Requirements-First specs.
 
 ## Routing Rules
 
 Check in this order and stop at the first match:
 
 1. `Bugfix`: the user wants to fix, investigate, reproduce, roll back, or recover existing expected behavior.
-2. `Feature / Design-First`: the user asks for design-first, tech design first, high-level design, low-level design, architecture, ADR, or gives a technical plan that must drive requirements.
+2. `Feature / Design-First`: the user asks for design-first, tech design first, high-level design, low-level design, architecture, ADR, or gives a technical plan or primary technical constraints that must drive requirements.
 3. `Feature / Requirements-First`: the user asks for a new feature, capability, workflow, scaffold, complex refactor, or product outcome without a fixed technical design starting point.
-4. `待澄清`: ask one question only: `这次是先从业务需求出发，还是先从技术设计 / 架构约束出发？`
+4. `待澄清`: ask one question only: `这次主要是 A. 恢复既有预期行为 / 修复缺陷，B. 从业务需求新增或调整能力，还是 C. 从技术设计 / 架构约束推进？`
 
 ## Branch Handoff
 

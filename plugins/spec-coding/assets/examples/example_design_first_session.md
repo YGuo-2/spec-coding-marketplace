@@ -14,16 +14,23 @@
 
 **智能体响应：**
 
-## 🧭 Spec 路由决定
+我读到了Spec-coding技能。
+
+## Spec 路由决定
 
 - 路径：Feature / Design-First
 - Design-First 粒度：High Level Design
 - 原因：用户已给出既定技术方案，并要求先从技术设计出发
 - 下一步：Design-First 澄清
 
+我会按照“Feature / Design-First”分支来完成。
+
+> [!WARNING]
+> 高风险变更警告：当前任务涉及 outbox、worker 与 Kafka 出站事件链路，存在分布式一致性和投递语义风险，必须进行人类深度审查，切勿草率合并。
+
 ---
 
-### 状态 A-D：Design-First 设计起点审视与澄清
+### 状态 A：Design-First 设计起点审视与澄清
 
 **智能体响应：**
 
@@ -48,7 +55,7 @@
 
 ---
 
-### 状态 B-D：Design-First 规范工件生成
+### 状态 B：Design-First 规范工件生成
 
 智能体生成以下三个文件：
 

@@ -20,7 +20,7 @@ If the entry router has not already printed the announcement, print:
 - Generate or update spec artifacts in `docs/specs/`; they are the source of truth.
 - `design.md` is the primary truth source for this branch.
 - `requirements.md` must be derived from `design.md`; do not add unsupported product scope.
-- If the request lacks a real technical design starting point, reroute to `../spec-requirements-first/SKILL.md`.
+- If the request is a pure product goal with no technical design intent, reroute to `../spec-requirements-first/SKILL.md`. If the user explicitly asks for Design-First but provides incomplete design input, stay in State A and clarify the design starting point.
 
 ## Design Granularity
 
@@ -60,6 +60,10 @@ Generate:
 - `docs/specs/requirements.md`: requirements and acceptance criteria derived from `design.md`, with clear markers for assumptions
 - `docs/specs/tasks.md`: ordered atomic tasks that follow design dependencies, using `- [ ]`, with verification criteria, estimate, and dependencies
 
+If the selected granularity is `Low Level Design`, `design.md` must also include module/class responsibilities, function signatures and contracts, algorithm flow, state transitions, and detailed data structures.
+
+Before review, replace all template placeholders with concrete content. If a template section does not apply, state that explicitly with the reason instead of leaving placeholder text.
+
 If `requirements.md` exposes a gap in `design.md`, update `design.md` first, then derive requirements and tasks again.
 
 The approval phrase for implementation is:
@@ -71,12 +75,16 @@ The approval phrase for implementation is:
 Suggested validation:
 
 ```bash
-python scripts/validate_spec.py docs/specs/ --workflow design-first
+python <plugin-root>/scripts/validate_spec.py docs/specs/ --workflow design-first
 ```
+
+This is a structural integrity check only. Passing validation does not approve implementation; implementation still requires the exact approval phrase.
 
 ## State C: Controlled Implementation
 
 Only enter this state after explicit approval.
+
+When the approval phrase is received, update any generated status or approval-record fields in the spec artifacts before implementation.
 
 Implementation rules:
 
@@ -84,7 +92,7 @@ Implementation rules:
 - Select only the first unchecked task in `tasks.md`.
 - Implement only behavior inside the approved design boundary.
 - Add or update tests that prove both design constraints and derived requirements.
-- If implementation conflicts with `design.md`, stop and revise the spec before coding further.
+- If implementation conflicts with `design.md` or any approved spec artifact must change, stop code work, return to State B, update the specs, rerun validation, and wait for `批准 design-first 规范，启动执行` again before continuing.
 - Run verification and perform at most three self-healing loops.
 - After passing verification, mark that task as `- [x]`.
 - Provide a commit message suggestion in this form:
@@ -95,3 +103,5 @@ feat(scope): short description
 Implements task: [task description]
 Spec: docs/specs/tasks.md
 ```
+
+Ask whether to continue only after the current task is complete.

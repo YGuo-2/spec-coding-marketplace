@@ -9,7 +9,6 @@ Spec Coding 规范完整性验证脚本
 
 用法:
     python validate_spec.py docs/specs/
-    python validate_spec.py docs/specs/ --workflow feature
     python validate_spec.py docs/specs/ --workflow requirements-first
     python validate_spec.py docs/specs/ --workflow design-first
     python validate_spec.py docs/specs/ --workflow bugfix
@@ -24,6 +23,11 @@ import sys
 
 
 Result = tuple[bool, str]
+
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 class Colors:
@@ -57,8 +61,8 @@ def has_pattern(content: str, pattern: str) -> bool:
 
 def normalize_workflow(workflow: str | None) -> str | None:
     aliases = {
-        "feature": "feature",
-        "requirements-first": "feature",
+        "feature": "requirements-first",
+        "requirements-first": "requirements-first",
         "design-first": "design-first",
         "bugfix": "bugfix",
         "auto": "auto",
@@ -85,7 +89,7 @@ def detect_workflow(specs_dir: str) -> str | None:
     matches = [
         workflow
         for workflow, present in (
-            ("feature", has_requirements_first),
+            ("requirements-first", has_requirements_first),
             ("design-first", has_design_first),
             ("bugfix", has_bugfix),
         )
@@ -95,6 +99,27 @@ def detect_workflow(specs_dir: str) -> str | None:
     if len(matches) == 1:
         return matches[0]
     return None
+
+
+def display_workflow(workflow: str) -> str:
+    labels = {
+        "requirements-first": "Feature / Requirements-First",
+        "design-first": "Feature / Design-First",
+        "bugfix": "Bugfix",
+    }
+    return labels[workflow]
+
+
+def is_low_level_design(content: str) -> bool:
+    for line in content.splitlines():
+        if not re.search(r"设计粒度|Design Level", line, re.IGNORECASE):
+            continue
+        if "Low Level Design" not in line:
+            continue
+        if "High Level Design" in line and "|" in line:
+            continue
+        return True
+    return False
 
 
 def check_product_spec(specs_dir: str) -> list[Result]:
@@ -227,6 +252,20 @@ def check_design_first_spec(specs_dir: str) -> list[Result]:
     else:
         results.append((False, "design.md 缺少 Mermaid 设计图"))
 
+    if is_low_level_design(content):
+        lld_sections = [
+            (r"模块\s*/\s*类职责|模块.*职责|module.*responsibilit|class.*responsibilit", "Low Level Design 模块 / 类职责"),
+            (r"函数签名|function signature|函数.*契约|method signature", "Low Level Design 函数签名与契约"),
+            (r"算法|algorithm", "Low Level Design 算法流程"),
+            (r"状态转换|状态机|state transition|state machine", "Low Level Design 状态转换"),
+            (r"详细数据结构|数据结构|detailed data structure", "Low Level Design 详细数据结构"),
+        ]
+        for pattern, desc in lld_sections:
+            if has_pattern(content, pattern):
+                results.append((True, f"design.md 包含: {desc}"))
+            else:
+                results.append((False, f"design.md 缺少: {desc}"))
+
     return results
 
 
@@ -314,8 +353,8 @@ def check_tasks_spec(specs_dir: str, workflow: str) -> list[Result]:
     else:
         results.append((False, "tasks.md 缺少复选框格式任务 (应使用 - [ ] 格式)"))
 
-    task_id_pattern = r"(B|T)-\d+" if workflow == "bugfix" else r"T-\d+"
-    task_label = "B-xxx / T-xxx" if workflow == "bugfix" else "T-xxx"
+    task_id_pattern = r"- \[[ xX~]\]\s+(?:\*\*)?B-\d+" if workflow == "bugfix" else r"- \[[ xX~]\]\s+(?:\*\*)?T-\d+"
+    task_label = "B-xxx" if workflow == "bugfix" else "T-xxx"
     if has_pattern(content, task_id_pattern):
         results.append((True, f"tasks.md 包含任务编号标识 ({task_label})"))
     else:
@@ -363,9 +402,9 @@ def main() -> None:
     parser.add_argument("specs_dir", help="规范文件所在目录路径 (如 docs/specs/)")
     parser.add_argument(
         "--workflow",
-        choices=["auto", "feature", "requirements-first", "design-first", "bugfix"],
         default="auto",
-        help="指定要验证的规范分支，默认自动检测",
+        metavar="{auto,requirements-first,design-first,bugfix}",
+        help="指定要验证的规范分支，默认自动检测；兼容旧别名 feature",
     )
     args = parser.parse_args()
 
@@ -380,21 +419,26 @@ def main() -> None:
         sys.exit(1)
 
     workflow = normalize_workflow(args.workflow)
+    if workflow is None:
+        print(colorize(f"✖ 不支持的工作流: {args.workflow}", Colors.RED))
+        print("请使用 --workflow requirements-first / design-first / bugfix，或省略以自动检测。")
+        sys.exit(1)
+
     if workflow == "auto":
         workflow = detect_workflow(specs_dir)
         if workflow is None:
             print(colorize("✖ 无法自动确定工作流。", Colors.RED))
-            print("请确认规范目录只包含一套工件，或使用 --workflow feature / design-first / bugfix 显式指定。")
+            print("请确认规范目录只包含一套工件，或使用 --workflow requirements-first / design-first / bugfix 显式指定。")
             sys.exit(1)
 
     required_files = {
-        "feature": ["product.md", "architecture.md", "tasks.md"],
+        "requirements-first": ["product.md", "architecture.md", "tasks.md"],
         "design-first": ["design.md", "requirements.md", "tasks.md"],
         "bugfix": ["bugfix.md", "design.md", "tasks.md"],
     }[workflow]
 
     print(f"📂 检查目录: {os.path.abspath(specs_dir)}")
-    print(f"🧭 规范分支: {workflow}\n")
+    print(f"🧭 规范分支: {display_workflow(workflow)}\n")
 
     all_results: list[Result] = []
 
@@ -404,7 +448,7 @@ def main() -> None:
         all_results.append(result)
         print_result(result)
 
-    if workflow == "feature":
+    if workflow == "requirements-first":
         print_section("product.md 内容检查")
         for result in check_product_spec(specs_dir):
             all_results.append(result)
@@ -451,7 +495,7 @@ def main() -> None:
     )
 
     if failed == 0:
-        print(colorize("\n  ✅ 所有规范检查通过！可以进入代码实施阶段。\n", Colors.GREEN))
+        print(colorize("\n  ✅ 规范结构/内容完整性检查通过。进入代码实施阶段仍需用户批准短语。\n", Colors.GREEN))
         sys.exit(0)
 
     print(colorize(f"\n  ⚠️  存在 {failed} 项问题，请检查并修复后重新验证。\n", Colors.YELLOW))

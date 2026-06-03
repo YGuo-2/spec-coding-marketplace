@@ -1,0 +1,20 @@
+{
+  "name": "spec-coding-marketplace",
+  "interface": {
+    "displayName": "Spec Coding Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "spec-coding",
+      "source": {
+        "source": "local",
+        "path": "./plugins/spec-coding"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

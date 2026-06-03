@@ -1,0 +1,37 @@
+{
+  "name": "spec-coding",
+  "version": "0.1.0",
+  "description": "Spec-first workflows for requirements-first features, design-first features, and bugfixes.",
+  "author": {
+    "name": "TriciaDoctor"
+  },
+  "repository": "https://github.com/YGuo-2/spec-coding-marketplace",
+  "license": "MIT",
+  "keywords": [
+    "spec",
+    "design-first",
+    "requirements",
+    "bugfix",
+    "developer-tools"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Spec Coding",
+    "shortDescription": "Route complex coding work through approved specs.",
+    "longDescription": "Spec Coding adds lightweight spec-first workflows for requirements-first feature work, design-first technical planning, and evidence-driven bugfixes before implementation.",
+    "developerName": "Local developer",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "brandColor": "#5DBCD2",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "defaultPrompt": [
+      "Create a spec before implementing this feature.",
+      "Plan this design-first change before coding.",
+      "Write a bugfix spec for this regression."
+    ]
+  }
+}

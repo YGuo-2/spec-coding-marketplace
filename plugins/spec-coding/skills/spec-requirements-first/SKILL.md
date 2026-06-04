@@ -22,6 +22,10 @@ If the entry router has not already printed the announcement, print:
 - If the user switches to architecture-first or ADR-first work, reroute to `../spec-design-first/SKILL.md`.
 - If the work is actually restoring existing expected behavior, reroute to `../spec-bugfix/SKILL.md`.
 
+## Intake Precondition
+
+Before State A, if the current conversation does not already include a `spec-intake` summary or a clear no-material-questions decision, read and follow `../spec-intake/SKILL.md`. If intake asks questions, stop and wait for the human answer before generating specs.
+
 ## State A: Requirements Clarification
 
 Before writing specs, inspect available project context such as `constitution.md`, `CONVENTIONS.md`, existing `docs/specs/`, and stack manifests like `package.json`, `pyproject.toml`, `Cargo.toml`, or similar files.
@@ -91,4 +95,6 @@ Implements task: [task description]
 Spec: docs/specs/tasks.md
 ```
 
-Ask whether to continue only after the current task is complete.
+If unchecked tasks remain, ask whether to continue only after the current task is complete.
+
+If no unchecked tasks remain in `docs/specs/tasks.md`, read and follow `../spec-acceptance/SKILL.md` before reporting the whole workflow complete.

@@ -22,6 +22,10 @@ If the entry router has not already printed the announcement, print:
 - `requirements.md` must be derived from `design.md`; do not add unsupported product scope.
 - If the request is a pure product goal with no technical design intent, reroute to `../spec-requirements-first/SKILL.md`. If the user explicitly asks for Design-First but provides incomplete design input, stay in State A and clarify the design starting point.
 
+## Intake Precondition
+
+Before choosing design granularity or entering State A, if the current conversation does not already include a `spec-intake` summary or a clear no-material-questions decision, read and follow `../spec-intake/SKILL.md`. If intake asks questions, stop and wait for the human answer before generating specs.
+
 ## Design Granularity
 
 Choose one before generating artifacts:
@@ -104,4 +108,6 @@ Implements task: [task description]
 Spec: docs/specs/tasks.md
 ```
 
-Ask whether to continue only after the current task is complete.
+If unchecked tasks remain, ask whether to continue only after the current task is complete.
+
+If no unchecked tasks remain in `docs/specs/tasks.md`, read and follow `../spec-acceptance/SKILL.md` before reporting the whole workflow complete.

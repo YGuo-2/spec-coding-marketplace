@@ -23,6 +23,10 @@ If the entry router has not already printed the announcement, print:
 - Keep the fix minimal and avoid unrelated refactors.
 - If the bug requires new user-visible capability or product scope change, stop and reroute to Feature.
 
+## Intake Precondition
+
+Before State A, if the current conversation does not already include a `spec-intake` summary or a clear no-material-questions decision, read and follow `../spec-intake/SKILL.md`. If intake asks questions, stop and wait for the human answer before generating specs.
+
 ## State A: Bug Analysis Clarification
 
 Inspect available evidence before asking questions: failing tests, logs, screenshots, issue text, alerts, recent changes, existing specs, manifests, and relevant code paths.
@@ -93,4 +97,6 @@ Implements task: [task description]
 Spec: docs/specs/tasks.md
 ```
 
-Ask whether to continue only after the current task is complete.
+If unchecked tasks remain, ask whether to continue only after the current task is complete.
+
+If no unchecked tasks remain in `docs/specs/tasks.md`, read and follow `../spec-acceptance/SKILL.md` before reporting the whole workflow complete.

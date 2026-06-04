@@ -1,7 +1,7 @@
 {
   "name": "spec-coding",
   "version": "0.1.0",
-  "description": "Spec-first workflows for requirements-first features, design-first features, and bugfixes.",
+  "description": "Spec-first workflows with intake clarification, branch implementation, and final acceptance for requirements-first features, design-first features, and bugfixes.",
   "author": {
     "name": "TriciaDoctor"
   },
@@ -9,16 +9,22 @@
   "license": "MIT",
   "keywords": [
     "spec",
+    "intake",
+    "clarification",
+    "acceptance",
+    "final-review",
+    "adversarial-review",
     "design-first",
     "requirements",
+    "scope",
     "bugfix",
     "developer-tools"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Spec Coding",
-    "shortDescription": "Route complex coding work through approved specs.",
-    "longDescription": "Spec Coding adds lightweight spec-first workflows for requirements-first feature work, design-first technical planning, and evidence-driven bugfixes before implementation.",
+    "shortDescription": "Clarify, route, implement, and accept complex coding work through approved specs.",
+    "longDescription": "Spec Coding adds an intake-first clarification step, lightweight spec workflows, controlled branch implementation, and final task-based acceptance with review and adversarial review agents before reporting completion.",
     "developerName": "Local developer",
     "category": "Developer Tools",
     "capabilities": [
@@ -29,9 +35,11 @@
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/logo.png",
     "defaultPrompt": [
+      "Clarify this request before writing the spec.",
       "Create a spec before implementing this feature.",
       "Plan this design-first change before coding.",
-      "Write a bugfix spec for this regression."
+      "Write a bugfix spec for this regression.",
+      "Run final acceptance for this completed spec workflow."
     ]
   }
 }

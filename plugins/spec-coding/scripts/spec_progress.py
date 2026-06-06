@@ -33,11 +33,21 @@ TASK_RE = re.compile(
 FIELD_RE = re.compile(r"^\s*-\s+(?P<key>[^:：]+?)\s*[:：]\s*(?P<value>.*)$")
 TOP_FIELD_RE = re.compile(r"^>\s+\*\*(?P<key>[^*]+):\*\*\s*(?P<value>.*)$")
 CHECKBOX_RE = re.compile(r"-\s+\[[ xX~]\]")
+# English risk terms use word boundaries so "cache" does not match inside
+# "caching layer" and "incident" does not match unrelated prose. CJK terms have
+# no word boundaries, so they are matched directly.
+_HIGH_RISK_EN = (
+    r"auth|authorization|authentication|payment|billing|database|migration|"
+    r"data[\s-]?repair|concurrency|distributed|cache|secret|encryption|"
+    r"sensitive|incident|rollback|hotfix|privacy|security|transaction|"
+    r"lock[\s-]?free|deadlock|sla|credential|token|permission|access[\s-]?control"
+)
+_HIGH_RISK_CJK = (
+    r"鉴权|认证|授权|支付|计费|数据库|迁移|数据修复|并发|分布式|缓存|密钥|"
+    r"凭证|令牌|加密|敏感|事故|回滚|热修复|隐私|安全|事务|死锁|权限|访问控制"
+)
 HIGH_RISK_RE = re.compile(
-    r"auth|authorization|payment|billing|database|migration|data repair|"
-    r"concurrency|distributed|cache|secret|encryption|sensitive|incident|"
-    r"rollback|hotfix|privacy|security|鉴权|授权|支付|计费|数据库|迁移|"
-    r"数据修复|并发|分布式|缓存|密钥|加密|敏感|事故|回滚|热修复|隐私|安全",
+    rf"(?:\b(?:{_HIGH_RISK_EN})\b)|(?:{_HIGH_RISK_CJK})",
     re.IGNORECASE,
 )
 
@@ -156,7 +166,13 @@ def now() -> str:
 
 
 def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8-sig")
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise SpecProgressError(
+            f"{path} is not valid UTF-8 (decode error at byte {exc.start}); "
+            "re-save the file as UTF-8 and retry"
+        ) from exc
 
 
 def write_text(path: Path, content: str) -> None:
@@ -172,19 +188,44 @@ def normalize_field_key(raw: str) -> str | None:
     return None
 
 
-def specs_path(specs_dir: str | Path) -> Path:
-    return Path(specs_dir).resolve()
+def specs_path(specs_dir: str | Path, base_dir: str | Path | None = None) -> Path:
+    """Resolve specs_dir to an absolute path.
+
+    When base_dir is provided, the resolved path must stay inside it; this
+    blocks ``../`` traversal from untrusted callers (e.g. the MCP server) that
+    would otherwise read or write files outside the intended repository.
+    """
+    resolved = Path(specs_dir).resolve()
+    if base_dir is not None:
+        base = Path(base_dir).resolve()
+        if resolved != base and base not in resolved.parents:
+            raise SpecProgressError(
+                f"specs_dir must stay within {base}; refusing path {resolved}"
+            )
+    return resolved
+
+
+def workflow_matches(specs_dir: str | Path) -> list[str]:
+    """All workflows whose required artifacts are present.
+
+    Single source of truth for workflow detection. detect_workflow picks one
+    (bugfix takes priority because design.md is shared); the validator uses the
+    full list to flag the ambiguous multi-match case.
+    """
+    root = specs_path(specs_dir)
+    matches: list[str] = []
+    if (root / "bugfix.md").is_file() and (root / "design.md").is_file():
+        matches.append("bugfix")
+    if (root / "design.md").is_file() and (root / "requirements.md").is_file():
+        matches.append("design-first")
+    if (root / "product.md").is_file() and (root / "architecture.md").is_file():
+        matches.append("requirements-first")
+    return matches
 
 
 def detect_workflow(specs_dir: str | Path) -> str:
-    root = specs_path(specs_dir)
-    if (root / "bugfix.md").is_file() and (root / "design.md").is_file():
-        return "bugfix"
-    if (root / "design.md").is_file() and (root / "requirements.md").is_file():
-        return "design-first"
-    if (root / "product.md").is_file() and (root / "architecture.md").is_file():
-        return "requirements-first"
-    return "unknown"
+    matches = workflow_matches(specs_dir)
+    return matches[0] if matches else "unknown"
 
 
 def primary_artifacts(workflow: str) -> list[str]:
@@ -271,6 +312,14 @@ def next_executable_tasks(tasks: list[Task]) -> list[Task]:
     return parallel or ready[:1]
 
 
+def task_sort_key(task_id: str) -> tuple[str, int, str]:
+    """Numeric-aware sort key so B-2 precedes B-10 (not lexicographic)."""
+    match = re.match(r"^([A-Za-z]+)-(\d+)$", task_id)
+    if match:
+        return (match.group(1), int(match.group(2)), "")
+    return (task_id, 0, task_id)
+
+
 def execution_waves(tasks: list[Task]) -> list[list[str]]:
     remaining = {task.task_id: task for task in tasks if task.state == "pending"}
     done = completed_ids(tasks)
@@ -282,14 +331,18 @@ def execution_waves(tasks: list[Task]) -> list[list[str]]:
             if all(dep in done or dep not in remaining for dep in task.depends_on)
         ]
         if not ready:
-            waves.append(sorted(remaining))
-            break
+            cycle = sorted(remaining, key=task_sort_key)
+            raise SpecProgressError(
+                "Circular or unresolvable task dependency detected among: "
+                + ", ".join(cycle)
+            )
         high = [task for task in ready if task.is_high_risk]
         if high:
-            wave = [sorted(high, key=lambda task: task.task_id)[0].task_id]
+            wave = [sorted(high, key=lambda task: task_sort_key(task.task_id))[0].task_id]
         else:
-            parallel = [task.task_id for task in ready if task.parallelizable]
-            wave = sorted(parallel or [sorted(ready, key=lambda task: task.task_id)[0].task_id])
+            parallel = [task for task in ready if task.parallelizable]
+            chosen = parallel or [sorted(ready, key=lambda task: task_sort_key(task.task_id))[0]]
+            wave = sorted((task.task_id for task in chosen), key=task_sort_key)
         waves.append(wave)
         for task_id in wave:
             done.add(task_id)
@@ -342,6 +395,16 @@ def git_output(args: list[str], cwd: Path) -> str:
     return result.stdout.strip() or "n/a"
 
 
+def git_available(specs_dir: str | Path) -> bool:
+    """True when git is installed and specs_dir sits inside a work tree.
+
+    dirty_paths returns [] both when nothing changed and when git is
+    unavailable; callers that enforce safety (guard-commit, resume) use this to
+    avoid treating "cannot tell" as "clean".
+    """
+    return git_output(["rev-parse", "--is-inside-work-tree"], specs_path(specs_dir)) == "true"
+
+
 def repo_root_for(specs_dir: str | Path) -> Path:
     specs = specs_path(specs_dir)
     root = git_output(["rev-parse", "--show-toplevel"], specs)
@@ -391,6 +454,13 @@ def business_paths(paths: list[str]) -> list[str]:
     return result
 
 
+def _parse_bullet(line: str) -> tuple[str, str] | None:
+    match = re.match(r"^-\s+(?P<key>[^:：]+?)\s*[:：]\s*(?P<value>.*)$", line)
+    if not match:
+        return None
+    return match.group("key").strip(), match.group("value").strip()
+
+
 def parse_progress(specs_dir: str | Path) -> Progress:
     path = specs_path(specs_dir) / "progress.md"
     if not path.is_file():
@@ -423,7 +493,15 @@ def parse_progress(specs_dir: str | Path) -> Progress:
         if line.startswith("## "):
             section = line[3:].strip()
             continue
-        if section == "Completed Work Log" and line.startswith("|"):
+        if section == "Resume Summary" and line.startswith("- "):
+            parsed = _parse_bullet(line)
+            if parsed:
+                progress.resume_summary[parsed[0]] = parsed[1]
+        elif section == "Active Task State" and line.startswith("- "):
+            parsed = _parse_bullet(line)
+            if parsed:
+                progress.active_state[parsed[0]] = parsed[1]
+        elif section == "Completed Work Log" and line.startswith("|"):
             if "---" not in line and "Task ID" not in line:
                 progress.completed_rows.append(line)
         elif section == "Recovery Notes" and line.startswith("- "):
@@ -442,6 +520,8 @@ def render_progress(
     blockers: str,
     note: str,
     append_log: str | None = None,
+    goal: str | None = None,
+    files_expected: str | None = None,
 ) -> str:
     previous = parse_progress(specs_dir)
     rows = list(previous.completed_rows)
@@ -460,6 +540,14 @@ def render_progress(
     elif active_status == "interrupted":
         next_action = "Inspect diff and verification evidence before continuing."
 
+    # Preserve carried-over state across writes; explicit args win, otherwise
+    # reuse what the previous progress.md recorded so resume context survives.
+    if goal is None:
+        goal = previous.resume_summary.get("Goal", "n/a")
+    if files_expected is None:
+        files_expected = previous.active_state.get("Files expected to change", "n/a")
+    verification_text = verification or previous.active_state.get("Verification needed", "") or "n/a"
+
     return f"""# Spec Coding Progress
 
 > **Workflow:** {workflow}
@@ -472,7 +560,7 @@ def render_progress(
 > **Last Known Commit:** {commit}
 
 ## Resume Summary
-- Goal: n/a
+- Goal: {goal or 'n/a'}
 - Approved specs: {', '.join(primary_artifacts(workflow) + ['tasks.md'])}
 - Current task: {current_task}
 - Next safe action: {next_action}
@@ -482,8 +570,8 @@ def render_progress(
 - Task ID: {current_task}
 - Status: {active_status}
 - Started at: {checkpoint if active_status == 'active' else 'n/a'}
-- Verification needed: {verification or 'n/a'}
-- Files expected to change: n/a
+- Verification needed: {verification_text}
+- Files expected to change: {files_expected or 'n/a'}
 
 ## Completed Work Log
 | Task ID | Time | Commit/State | Verification | Notes |
@@ -506,6 +594,8 @@ def write_progress(
     blockers: str = "",
     note: str = "",
     append_log: str | None = None,
+    goal: str | None = None,
+    files_expected: str | None = None,
 ) -> None:
     path = specs_path(specs_dir) / "progress.md"
     write_text(
@@ -521,6 +611,8 @@ def write_progress(
             blockers,
             note,
             append_log,
+            goal=goal,
+            files_expected=files_expected,
         ),
     )
 
@@ -533,7 +625,10 @@ def parse_flat_yml(path: Path) -> dict[str, str]:
         if not line.strip() or line.lstrip().startswith("#") or ":" not in line:
             continue
         key, value = line.split(":", 1)
-        data[key.strip()] = value.strip()
+        key = key.strip()
+        if not key:
+            continue
+        data[key] = value.strip()
     return data
 
 
@@ -665,6 +760,8 @@ def command_start(specs_dir: str | Path, task_id: str) -> str:
         "active",
         verification=task.fields.get("verify", ""),
         note=f"Started {task_id}",
+        goal=task.title,
+        files_expected=task.fields.get("files", "") or "n/a",
     )
     write_spec_index(specs_dir, workflow, task_id, "approved")
     return f"Started {task_id}"
@@ -765,7 +862,19 @@ def command_resume(specs_dir: str | Path) -> dict[str, object]:
     root = specs_path(specs_dir)
     issues: list[str] = []
     warnings: list[str] = []
-    tasks = parse_tasks(root)
+    try:
+        tasks = parse_tasks(root)
+    except SpecProgressError as exc:
+        # tasks.md missing or unreadable: report instead of crashing so the
+        # caller still gets a structured, actionable resume payload.
+        return {
+            "workflow": workflow,
+            "status": "blocked",
+            "issues": [str(exc)],
+            "warnings": [],
+            "current_task": "n/a",
+            "next_executable": [],
+        }
     progress = parse_progress(root)
     index = parse_flat_yml(root / "spec.yml")
     if not (root / "progress.md").is_file():
@@ -783,7 +892,10 @@ def command_resume(specs_dir: str | Path) -> dict[str, object]:
         issues.append(f"spec.yml current task does not exist: {index.get('current_task')}")
     active = [task for task in tasks if task.state == "active"]
     interrupted = False
-    if active and business_paths(dirty_paths(root)):
+    git_ok = git_available(root)
+    if not git_ok:
+        warnings.append("git is unavailable; cannot detect dirty business-code changes")
+    if active and git_ok and business_paths(dirty_paths(root)):
         interrupted = True
         warnings.append(
             f"active task {active[0].task_id} has dirty business-code changes; treat as interrupted"
@@ -819,11 +931,18 @@ def command_sync_check(specs_dir: str | Path, write: bool = False) -> dict[str, 
     if index.get("task_ids") and index.get("task_ids") != task_ids:
         issues.append("spec.yml task_ids drift from tasks.md")
     old_hashes = parse_hashes(index.get("artifact_hashes", ""))
+    have_baseline = bool(old_hashes)
     for artifact in primary_artifacts(workflow):
         old = old_hashes.get(artifact)
         new = sha256_file(root / artifact)
-        if old and old != new:
+        if new == "missing":
+            issues.append(f"{artifact} is missing but referenced by the spec index")
+        elif old is not None and old != new:
             issues.append(f"{artifact} changed since last approved index")
+        elif old is None and have_baseline:
+            # Baseline exists but this artifact was never hashed: a newly added
+            # spec file that bypassed reapproval.
+            issues.append(f"{artifact} is new and missing from the approved index")
     if issues:
         suggestions.append("Review spec changes, rebuild tasks if needed, then request reapproval.")
         if write:
@@ -839,21 +958,37 @@ def command_sync_check(specs_dir: str | Path, write: bool = False) -> dict[str, 
     return {"issues": issues, "suggestions": suggestions}
 
 
+def progress_file_paths(specs_dir: str | Path) -> set[str]:
+    """Progress files as paths relative to the repo root (forward slashes).
+
+    Derived from the supplied specs_dir so the guard works regardless of where
+    the specs live, instead of assuming docs/specs/.
+    """
+    root = repo_root_for(specs_dir)
+    specs = specs_path(specs_dir)
+    paths: set[str] = set()
+    for name in ("tasks.md", "progress.md", "spec.yml"):
+        target = specs / name
+        try:
+            relative = target.relative_to(root)
+        except ValueError:
+            relative = Path(name)
+        paths.add(relative.as_posix())
+    return paths
+
+
 def command_guard_commit(specs_dir: str | Path) -> dict[str, object]:
     paths = dirty_paths(specs_dir, staged=True)
     business = business_paths(paths)
-    progress_paths = {
-        "docs/specs/tasks.md",
-        "docs/specs/progress.md",
-        "docs/specs/spec.yml",
-    }
+    progress_paths = progress_file_paths(specs_dir)
     progress_changed = any(path.replace("\\", "/") in progress_paths for path in paths)
+    hint = ", ".join(sorted(progress_paths))
     if business and not progress_changed:
         return {
             "ok": False,
             "message": (
                 "Business-code changes are staged while spec progress files are unchanged. "
-                "Update docs/specs/tasks.md, progress.md, or spec.yml before committing."
+                f"Update {hint} before committing."
             ),
             "business_paths": business,
         }

@@ -26,6 +26,8 @@ from pathlib import Path
 try:
     from spec_progress import (
         SpecProgressError,
+        VALID_APPROVAL_STATES,
+        VALID_PROGRESS_STATES,
         command_pre_acceptance,
         command_resume,
         command_status,
@@ -34,9 +36,12 @@ try:
         parse_flat_yml,
         parse_progress,
         parse_tasks,
+        workflow_matches,
     )
 except ImportError:  # pragma: no cover - direct import is available in normal CLI use.
     SpecProgressError = Exception
+    VALID_APPROVAL_STATES = {"pending", "approved", "reapproval-required"}
+    VALID_PROGRESS_STATES = {"Draft", "Approved", "In Progress", "Blocked", "Completed", "Accepted"}
     command_pre_acceptance = None
     command_resume = None
     command_status = None
@@ -45,6 +50,7 @@ except ImportError:  # pragma: no cover - direct import is available in normal C
     parse_flat_yml = None
     parse_progress = None
     parse_tasks = None
+    workflow_matches = None
 
 
 Result = tuple[bool, str]
@@ -149,28 +155,42 @@ def normalize_workflow(workflow: str | None) -> str | None:
 
 
 def detect_workflow(specs_dir: str) -> str | None:
-    has_requirements_first = all(
-        os.path.isfile(os.path.join(specs_dir, filename))
-        for filename in ("product.md", "architecture.md")
-    )
-    has_design_first = all(
-        os.path.isfile(os.path.join(specs_dir, filename))
-        for filename in ("design.md", "requirements.md")
-    )
-    has_bugfix = all(
-        os.path.isfile(os.path.join(specs_dir, filename))
-        for filename in ("bugfix.md", "design.md")
-    )
+    """Reuse spec_progress as the single source of truth for matching.
 
-    matches = [
-        workflow
-        for workflow, present in (
-            ("requirements-first", has_requirements_first),
-            ("design-first", has_design_first),
-            ("bugfix", has_bugfix),
-        )
-        if present
-    ]
+    spec_progress.workflow_matches lists every workflow whose artifacts are
+    present; here we keep the validator's stricter contract of returning None
+    when the directory is ambiguous (more than one match) or empty.
+    """
+    if workflow_matches is not None:
+        matches = workflow_matches(specs_dir)
+    else:  # pragma: no cover - fallback when spec_progress import failed.
+        matches = [
+            workflow
+            for workflow, present in (
+                (
+                    "requirements-first",
+                    all(
+                        os.path.isfile(os.path.join(specs_dir, filename))
+                        for filename in ("product.md", "architecture.md")
+                    ),
+                ),
+                (
+                    "design-first",
+                    all(
+                        os.path.isfile(os.path.join(specs_dir, filename))
+                        for filename in ("design.md", "requirements.md")
+                    ),
+                ),
+                (
+                    "bugfix",
+                    all(
+                        os.path.isfile(os.path.join(specs_dir, filename))
+                        for filename in ("bugfix.md", "design.md")
+                    ),
+                ),
+            )
+            if present
+        ]
 
     if len(matches) == 1:
         return matches[0]
@@ -698,10 +718,6 @@ def check_progress_files(specs_dir: str, workflow: str) -> list[Result]:
     else:
         results.append((True, "progress.md 完成状态与 tasks.md 一致"))
     return results
-
-
-VALID_PROGRESS_STATES = {"Draft", "Approved", "In Progress", "Blocked", "Completed", "Accepted"}
-VALID_APPROVAL_STATES = {"pending", "approved", "reapproval-required"}
 
 
 def print_section(title: str) -> None:

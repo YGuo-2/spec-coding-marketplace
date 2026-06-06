@@ -25,7 +25,27 @@ from spec_progress import (  # noqa: E402
     command_skip,
     command_start,
     command_status,
+    specs_path,
 )
+
+
+def _base_dir() -> Path:
+    """Directory that all specs_dir arguments must stay within.
+
+    Defaults to the server's current working directory (the repository it was
+    launched in). Override with SPEC_CODING_BASE_DIR when the server runs from
+    a different location than the project root.
+    """
+    return Path(os.environ.get("SPEC_CODING_BASE_DIR", os.getcwd())).resolve()
+
+
+def _checked_specs_dir(args: dict[str, Any]) -> str:
+    raw = args.get("specs_dir")
+    if not isinstance(raw, str) or not raw.strip():
+        raise SpecProgressError("specs_dir is required")
+    # Raises SpecProgressError on ../ traversal outside the base directory.
+    specs_path(raw, base_dir=_base_dir())
+    return raw
 
 
 TOOLS = [
@@ -118,17 +138,17 @@ def text_result(data: Any) -> dict[str, Any]:
 
 def call_tool(name: str, args: dict[str, Any]) -> Any:
     if name == "spec_status":
-        return command_status(args["specs_dir"])
+        return command_status(_checked_specs_dir(args))
     if name == "spec_resume":
-        return command_resume(args["specs_dir"])
+        return command_resume(_checked_specs_dir(args))
     if name == "spec_start_task":
-        return command_start(args["specs_dir"], args["task_id"])
+        return command_start(_checked_specs_dir(args), args["task_id"])
     if name == "spec_complete_task":
-        return command_complete(args["specs_dir"], args["task_id"], args["evidence"], args.get("notes", ""))
+        return command_complete(_checked_specs_dir(args), args["task_id"], args["evidence"], args.get("notes", ""))
     if name == "spec_block_task":
-        return command_block(args["specs_dir"], args["task_id"], args["reason"])
+        return command_block(_checked_specs_dir(args), args["task_id"], args["reason"])
     if name == "spec_skip_task":
-        return command_skip(args["specs_dir"], args["task_id"], args["approval"])
+        return command_skip(_checked_specs_dir(args), args["task_id"], args["approval"])
     raise SpecProgressError(f"Unknown tool: {name}")
 
 

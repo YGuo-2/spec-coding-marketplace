@@ -1,7 +1,7 @@
 {
   "name": "spce-workflow",
   "version": "0.2.0",
-  "description": "Spec-first workflows with Kiro-compatible indexes, requirements analysis, task graphs, resumable progress, MCP task updates, hook guards, and layered acceptance.",
+  "description": "Spec-first workflows with Kiro-compatible indexes, requirements analysis, task graphs, resumable progress, MCP task and acceptance updates, hook guards, and bounded layered acceptance.",
   "author": {
     "name": "TriciaDoctor"
   },
@@ -30,7 +30,7 @@
   "interface": {
     "displayName": "Spce workflow",
     "shortDescription": "Clarify, route, implement, and accept complex coding work through approved specs.",
-    "longDescription": "Spce workflow adds intake-first clarification, Kiro-style requirements analysis, spec.yml/progress.md state files, structured task graphs, MCP-backed task updates, hook guard templates, controlled implementation, local pre-acceptance, and strict final acceptance with review and adversarial review agents before reporting completion.",
+    "longDescription": "Spce workflow adds intake-first clarification, Kiro-style requirements analysis, spec.yml/progress.md state files, structured task graphs, MCP-backed task and acceptance updates, hook guard templates, controlled implementation, local pre-acceptance, and strict resumable final acceptance with review/adversarial agents, isolated acceptance fixes, and bounded retry policy before reporting completion.",
     "developerName": "TriciaDoctor",
     "category": "Developer Tools",
     "capabilities": [

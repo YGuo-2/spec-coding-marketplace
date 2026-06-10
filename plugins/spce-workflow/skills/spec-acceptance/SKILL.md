@@ -5,7 +5,7 @@ description: Use after Spce workflow implementation tasks are complete to run fi
 
 # Spce workflow Acceptance
 
-Use this as the final step after a Spce workflow branch finishes every task in `docs/specs/tasks.md`. Its job is to verify the whole workflow outcome; it does not create `docs/specs/acceptance.md`.
+Use this as the final step after a Spce workflow branch finishes every task in `docs/specs/tasks.md`. Its job is to verify the whole workflow outcome. It does not create `docs/specs/acceptance.md`; resumable acceptance state lives in `docs/specs/acceptance_state.json`, and acceptance repair work lives in `docs/specs/acceptance-fixes.md`.
 
 ## Required Announcement
 
@@ -24,7 +24,11 @@ If the branch skill has not already printed the announcement, print:
 - Do not downgrade this flow to a single local review or pretend local review is equivalent to multi-agent acceptance.
 - Local `pre-acceptance` is allowed before sub-agent review, but it is only a readiness check. It must never be reported as final acceptance.
 - If the current environment cannot orchestrate sub-agents, state that final acceptance is blocked by missing orchestration capability and do not report the workflow complete.
-- Do not edit business source code inside this skill. Confirmed issues must route into `../spec-bugfix/SKILL.md`.
+- Do not edit business source code inside this skill. Confirmed issues must be recorded through the acceptance progress tools first, then fixed from `docs/specs/acceptance-fixes.md`.
+- Never append acceptance repair tasks to the original `docs/specs/tasks.md`. The original task IDs are frozen at acceptance start; if they change, final acceptance is blocked.
+- Before spawning any sub-agent, run `acceptance-status` (MCP `spec_acceptance_status` or CLI) when `acceptance_state.json` exists. Resume pending agents instead of rebuilding all units from memory.
+- Every issue must have severity `P0` through `P4`, affected unit/task IDs, and evidence. Unsupported opinions or style preferences are not actionable issues.
+- Rounds 1-3 may auto-fix all evidence-backed actionable issues. From round 4 onward, only `P0`, `P1`, and `P2` issues are auto-fixed; `P3` and `P4` issues are deferred unless the human explicitly upgrades them. Stop at round 6 and request human decision if any `P0`-`P2` issue remains.
 - Final success output must summarize the completed plugin workflow, not dump raw agent review transcripts.
 
 ## State A: Acceptance Preconditions
@@ -45,6 +49,14 @@ Before asking for sub-agent authorization, run or request the equivalent of:
 python <plugin-root>/scripts/validate_spec.py docs/specs/ --pre-acceptance
 ```
 
+If `docs/specs/acceptance_state.json` already exists, resume with:
+
+```bash
+python <plugin-root>/scripts/spec_progress.py acceptance-status docs/specs/
+```
+
+Use the returned pending/running agent IDs and affected units as the source of truth. Do not infer missing agents from chat history.
+
 If pre-acceptance fails, summarize the local issues and route them back to the selected branch or Bugfix path. If pre-acceptance passes but sub-agent orchestration is unavailable, the required wording is:
 
 ```markdown
@@ -63,20 +75,26 @@ If sub-agent orchestration is unavailable in the current environment, stop with:
 结尾验收被阻塞：当前环境不支持按 `tasks.md` 编排子 agent 审查和对抗审查。根据 Spce workflow 规则，不能降级为单 agent 自审，也不能宣告整个工作流完成。
 ```
 
-## State B: Build Review Units
+## State B: Initialize Or Resume Acceptance
 
-Parse `tasks.md` in order and build review units.
+If no acceptance state exists, initialize it:
 
-- A task must stand alone if it is high risk, spans multiple major modules, has complex verification, changes public contracts, or appears in the risk table.
-- High-risk signals include auth, authorization, payment, billing, database, migration, data repair, concurrency, distributed consistency, cache consistency, secrets, encryption, sensitive data, incident, rollback, hotfix, privacy, performance, or security.
-- Low-risk tasks may be grouped only with contiguous tasks under the same phase heading.
-- A grouped unit may contain at most three tasks.
-- If `tasks.md` has no phase headings, group low-risk tasks by original order, at most three tasks per unit.
-- Let the final review-unit count be `M`. If every task stands alone, `M=N` and the flow uses `2N` sub-agents. If low-risk tasks are grouped, the flow uses `2M` sub-agents.
+```bash
+python <plugin-root>/scripts/spec_progress.py acceptance-init docs/specs/
+```
+
+The tool parses `tasks.md`, freezes the original task IDs, builds review units, and plans two agents per unit: first-wave review plus adversarial review. It writes `docs/specs/acceptance_state.json`.
+
+Review-unit rules are implemented by `spec_progress.py`:
+
+- high-risk tasks stand alone
+- low-risk tasks may group only with contiguous tasks under the same phase
+- grouped units contain at most three tasks
+- later rounds include only affected units
 
 ## State C: First-Wave Review
 
-Spawn `M` review agents in parallel. Each agent owns exactly one review unit and must not edit files.
+Spawn only the first-wave agents shown as planned by `acceptance-status`. Before each launch, call `acceptance-start-agent`/`spec_acceptance_start_agent`. Each agent owns exactly one review unit and must not edit files.
 
 Each first-wave prompt must include:
 
@@ -84,6 +102,7 @@ Each first-wave prompt must include:
 - The assigned task IDs and task text from `tasks.md`
 - Relevant changed files, diffs, tests, logs, and verification results
 - A request to review completion, strict spec adherence, overbroad fallback, missing verification, regression risk, and unapproved behavior
+- The instruction to classify each finding as `P0`, `P1`, `P2`, `P3`, or `P4` with evidence; non-evidence-backed concerns must be reported as notes, not issues
 
 Each first-wave agent must return:
 
@@ -95,38 +114,47 @@ Each first-wave agent must return:
 - Spec Adherence: [strict / deviation with evidence]
 - Over-Fallback: [none / present with evidence]
 - Verification: [sufficient / missing with evidence]
-- Issues: [numbered actionable findings or n/a]
+- Issues: [numbered actionable findings with severity/evidence or n/a]
 ```
 
-Wait for all first-wave agents before starting the second wave.
+After each result, call `acceptance-complete-agent`. For every evidence-backed issue, call `acceptance-record-issue`. Wait for all first-wave agents before starting the second wave.
 
 ## State D: Adversarial Review
 
-Spawn `M` adversarial agents in parallel. Each adversarial agent reviews the matching first-wave report, the same review unit, and the same spec evidence.
+Spawn only the planned adversarial agents for the current round. Each adversarial agent reviews the matching first-wave report, the same review unit, and the same spec evidence.
 
 Each adversarial agent must:
 
 - Challenge whether the first-wave review missed incomplete work, spec drift, over-fallback, weak tests, hidden regressions, or unsupported assumptions
-- Ask bold questions and prefer concrete evidence over agreement
+- Prefer concrete evidence over agreement
+- Assign severity `P0`-`P4` to any new issue
 - Return `PASS` only when no actionable challenge remains
 
-Send each adversarial result back to the matching first-wave agent for a revised conclusion. Reuse the first-wave agent when possible; resume it first if needed.
+After each result, call `acceptance-complete-agent` and record any issues through `acceptance-record-issue`.
 
 ## State E: Loop Until Clear
 
-Repeat the adversarial review and first-wave revision cycle while new actionable issues appear.
+After a review round completes, call:
 
-Stop when:
+```bash
+python <plugin-root>/scripts/spec_progress.py acceptance-plan-fixes docs/specs/
+```
 
-- Every first-wave unit is `PASS`
-- Every adversarial unit is `PASS`
-- No new spec deviation, incomplete task, over-fallback, missing verification, or regression risk remains
+This creates or refreshes `docs/specs/acceptance-fixes.md`. It must not modify `docs/specs/tasks.md`.
 
-If disagreement persists, treat any evidence-backed actionable concern as an issue and enter the Bugfix path.
+Fix policy:
+
+- rounds 1-3: plan fixes for all evidence-backed actionable issues
+- rounds 4-6: plan fixes only for `P0`, `P1`, and `P2`; defer `P3` and `P4`
+- after round 6: if any `P0`-`P2` remains, stop and request human decision
+
+After fixes complete, call `acceptance-next-round`; it plans agents only for affected units. Do not rerun all original units unless the tool reports all units as affected.
+
+Stop when `acceptance-status` reports no pending agents, no pending fixes, and no unresolved issues. Then call `acceptance-finish`.
 
 ## State F: Final Branch
 
-If no issues remain, output the final workflow completion result:
+If `acceptance-finish` succeeds, output the final workflow completion result:
 
 ```markdown
 ## Spce workflow 完成结果
@@ -142,5 +170,6 @@ If no issues remain, output the final workflow completion result:
 If issues remain:
 
 - Summarize only actionable issues with evidence and affected task IDs.
-- Read and follow `../spec-bugfix/SKILL.md`, using the acceptance findings as bug evidence.
-- After the Bugfix branch completes its tasks, run this `spec-acceptance` flow again.
+- Use `docs/specs/acceptance-fixes.md` as the fix queue.
+- Do not append these fixes to `docs/specs/tasks.md`.
+- After fixes complete, resume this acceptance flow with `acceptance-status`.

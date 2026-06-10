@@ -31,6 +31,8 @@ Use it for complex features, cross-module refactors, design-first work, regressi
 
 ## Workflow
 
+![Spce workflow plugin workflow](spce-workflow-flowchart.png)
+
 All generated artifacts live in `docs/specs/`; chat-only plans are not the source of truth.
 
 1. Resume first if `docs/specs/progress.md` exists.
@@ -90,9 +92,14 @@ python plugins/spce-workflow/scripts/spec_progress.py skip docs/specs/ T-001 --a
 python plugins/spce-workflow/scripts/spec_progress.py waves docs/specs/
 python plugins/spce-workflow/scripts/spec_progress.py sync-check docs/specs/
 python plugins/spce-workflow/scripts/spec_progress.py pre-acceptance docs/specs/
+python plugins/spce-workflow/scripts/spec_progress.py acceptance-init docs/specs/
+python plugins/spce-workflow/scripts/spec_progress.py acceptance-status docs/specs/
+python plugins/spce-workflow/scripts/spec_progress.py acceptance-plan-fixes docs/specs/
+python plugins/spce-workflow/scripts/spec_progress.py acceptance-next-round docs/specs/
+python plugins/spce-workflow/scripts/spec_progress.py acceptance-finish docs/specs/
 ```
 
-`complete` requires verification evidence. `skip` requires explicit human approval evidence. If a task is active and the worktree has business-code changes after an interruption, `resume` reports `interrupted`; the next agent must inspect the diff and evidence before continuing.
+`complete` requires verification evidence. `skip` requires explicit human approval evidence. Task updates also synchronize the top-level `tasks.md` status, current task, progress count, and completion log. If a task is active and the worktree has business-code changes after an interruption, `resume` reports `interrupted`; the next agent must inspect the diff and evidence before continuing.
 
 ## MCP Tools
 
@@ -104,6 +111,16 @@ The plugin includes `.mcp.json` and a stdio server at `mcp/spec_progress_server.
 - `spec_complete_task`
 - `spec_block_task`
 - `spec_skip_task`
+- `spec_acceptance_init`
+- `spec_acceptance_status`
+- `spec_acceptance_start_agent`
+- `spec_acceptance_complete_agent`
+- `spec_acceptance_record_issue`
+- `spec_acceptance_plan_fixes`
+- `spec_acceptance_fix_start`
+- `spec_acceptance_fix_complete`
+- `spec_acceptance_next_round`
+- `spec_acceptance_finish`
 
 Agents should use MCP task tools when available. The CLI is the fallback and remains the canonical implementation.
 
@@ -150,7 +167,9 @@ python plugins/spce-workflow/scripts/validate_spec.py docs/specs/ --pre-acceptan
 
 Final acceptance is intentionally strict. Local `pre-acceptance` may verify readiness when sub-agents are unavailable, but it is not final acceptance. Strict final acceptance requires explicit authorization to orchestrate sub-agents for first-wave review and adversarial review. If the current environment cannot run sub-agents, the workflow is blocked at acceptance; it must not be downgraded to a single-agent self-review or reported as complete.
 
-Confirmed acceptance issues route back into the Bugfix branch, then acceptance is repeated after the fix.
+Acceptance is resumable through `docs/specs/acceptance_state.json`. The state file freezes the original `tasks.md` task IDs, records review units, tracks which sub-agents are planned/running/completed, and records issue/fix/deferred status. After context compaction or interruption, agents must run `acceptance-status` and resume only the missing agents instead of rebuilding all review units.
+
+Confirmed acceptance issues are repaired through `docs/specs/acceptance-fixes.md`, not by appending tasks to the original `docs/specs/tasks.md`. Rounds 1-3 may fix all evidence-backed actionable issues. From round 4 onward, only P0-P2 issues are auto-fixed; P3/P4 issues are deferred unless a human upgrades them. Round 6 is the hard stop for unresolved P0-P2 issues.
 
 ## High-Risk Work
 
@@ -169,4 +188,10 @@ python plugins/spce-workflow/scripts/test_validate_spec.py
 python -m json.tool plugins/spce-workflow/.codex-plugin/plugin.json
 python -m json.tool plugins/spce-workflow/.mcp.json
 git diff --check
+```
+
+For a spec directory that has entered final acceptance, also run:
+
+```bash
+python plugins/spce-workflow/scripts/spec_progress.py acceptance-status docs/specs/
 ```

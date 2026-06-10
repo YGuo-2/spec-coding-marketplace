@@ -24,6 +24,7 @@ If the entry router has not already printed the announcement, print:
 - Do not delete failing tests, weaken assertions, or disable warnings just to pass validation.
 - Keep the fix minimal and avoid unrelated refactors.
 - If the bug requires new user-visible capability or product scope change, stop and reroute to Feature.
+- If the bug evidence comes from final acceptance and `docs/specs/acceptance_state.json` exists, do not append repair tasks to the original `docs/specs/tasks.md`. Use `docs/specs/acceptance-fixes.md` and the acceptance progress tools instead, then return to `../spec-acceptance/SKILL.md`.
 
 ## High-Risk Warning
 
@@ -54,6 +55,16 @@ Clarify only bug-critical gaps:
 If clarification is needed, output a concise numbered question list focused on reproduction, evidence, scope, and regression constraints. Unknowns may be recorded as assumptions or risks if the user accepts that.
 
 ## State B: Bugfix Spec Artifact Generation
+
+If this is an acceptance repair:
+
+- Treat `docs/specs/acceptance_state.json` as the source of truth for round, issue severity, affected units, and pending fixes.
+- Treat `docs/specs/acceptance-fixes.md` as the repair task list.
+- Do not regenerate `docs/specs/tasks.md`, do not append `B-xxx` tasks to it, and do not change the frozen original task IDs.
+- Use `python <plugin-root>/scripts/spec_progress.py acceptance-fix-start docs/specs/ F-xxx` before editing code and `acceptance-fix-complete` with evidence after verification.
+- When all planned fixes are done, resume `../spec-acceptance/SKILL.md` via `acceptance-status` / `acceptance-next-round`.
+
+For ordinary bugfixes, continue with the normal artifact flow below.
 
 Use the plugin templates from `../../assets/templates/`:
 

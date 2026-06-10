@@ -29,6 +29,7 @@ try:
         VALID_APPROVAL_STATES,
         VALID_PROGRESS_STATES,
         command_pre_acceptance,
+        command_acceptance_status,
         command_resume,
         command_status,
         command_sync_check,
@@ -43,6 +44,7 @@ except ImportError:  # pragma: no cover - direct import is available in normal C
     VALID_APPROVAL_STATES = {"pending", "approved", "reapproval-required"}
     VALID_PROGRESS_STATES = {"Draft", "Approved", "In Progress", "Blocked", "Completed", "Accepted"}
     command_pre_acceptance = None
+    command_acceptance_status = None
     command_resume = None
     command_status = None
     command_sync_check = None
@@ -514,6 +516,16 @@ def collect_task_stats(content: str, workflow: str) -> tuple[TaskStats, list[str
     return stats, invalid_lines
 
 
+def task_summary_fields(content: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    pattern = re.compile(r"^\s*>\s+\*\*(?P<key>[^*：:]+)[：:]\*\*\s*(?P<value>.*)$")
+    for line in content.splitlines():
+        match = pattern.match(line)
+        if match:
+            fields[match.group("key").strip().lower()] = match.group("value").strip()
+    return fields
+
+
 def check_tasks_spec(specs_dir: str, workflow: str) -> list[Result]:
     content, load_errors = load_spec_file(specs_dir, "tasks.md")
     if content is None:
@@ -531,6 +543,22 @@ def check_tasks_spec(specs_dir: str, workflow: str) -> list[Result]:
         ))
     else:
         results.append((False, f"tasks.md 缺少带 {task_label} 编号的复选框任务"))
+
+    summary = task_summary_fields(content)
+    progress_value = summary.get("进度") or summary.get("progress")
+    if progress_value:
+        expected_completed = stats.checked + stats.skipped
+        match = re.search(r"(?P<done>\d+)\s*/\s*(?P<total>\d+)", progress_value)
+        if not match:
+            results.append((False, f"tasks.md 顶部进度格式无法解析: {progress_value}"))
+        elif int(match.group("done")) == expected_completed and int(match.group("total")) == stats.total:
+            results.append((True, "tasks.md 顶部进度与复选框状态一致"))
+        else:
+            results.append((
+                False,
+                "tasks.md 顶部进度与复选框状态不一致: "
+                f"{progress_value} != {expected_completed} / {stats.total}",
+            ))
 
     if invalid_lines:
         preview = "; ".join(invalid_lines[:4])
@@ -787,7 +815,12 @@ def main() -> None:
         try:
             import json
 
-            print(json.dumps(command_status(specs_dir), ensure_ascii=False, indent=2))
+            payload = {"task_progress": command_status(specs_dir)}
+            if command_acceptance_status is not None and (Path(specs_dir) / "acceptance_state.json").is_file():
+                payload["acceptance"] = command_acceptance_status(specs_dir)
+            else:
+                payload["acceptance"] = "not initialized"
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
             sys.exit(0)
         except SpecProgressError as exc:
             print(colorize(f"✖ {exc}", Colors.RED))

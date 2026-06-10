@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -221,6 +222,11 @@ def valid_design_tasks() -> str:
 def valid_feature_tasks() -> str:
     return """
     # Tasks
+
+    > **状态：** Draft
+    > **当前任务：** T-001
+    > **进度：** 2 / 3 已完成
+    > **最后更新：** 2026-01-01
 
     ## 执行规则
 
@@ -579,6 +585,124 @@ class ValidatorRegressionTests(unittest.TestCase):
             self.assertIn("- [x] **T-001:**", (specs_dir / "tasks.md").read_text(encoding="utf-8"))
             self.assertIn("pytest tests/test_comments.py passed", (specs_dir / "progress.md").read_text(encoding="utf-8"))
             self.assertIn("current_task:", (specs_dir / "spec.yml").read_text(encoding="utf-8"))
+            self.assertIn("> **进度：** 3 / 3 已完成", (specs_dir / "tasks.md").read_text(encoding="utf-8"))
+            self.assertIn("| T-001 |", (specs_dir / "tasks.md").read_text(encoding="utf-8"))
+
+    def test_validator_flags_stale_tasks_progress_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            specs_dir = Path(tmp)
+            tasks = valid_feature_tasks().replace("> **进度：** 2 / 3 已完成", "> **进度：** 0 / 3 已完成")
+            make_requirements_first(specs_dir, tasks=tasks)
+
+            result = run_validator(specs_dir, "requirements-first")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("顶部进度与复选框状态不一致", result.stdout)
+
+    def test_acceptance_state_recovers_pending_agents_after_partial_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            specs_dir = Path(tmp)
+            tasks = valid_feature_tasks().replace("- [ ] **T-001:**", "- [x] **T-001:**")
+            tasks = tasks.replace("- 状态: pending", "- 状态: done", 1)
+            tasks = tasks.replace("- 验证证据: pending", "- 验证证据: pytest passed", 1)
+            make_requirements_first(specs_dir, tasks=tasks)
+            init_progress(specs_dir)
+
+            init = run_progress("acceptance-init", str(specs_dir))
+            self.assertEqual(init.returncode, 0, init.stdout + init.stderr)
+            state = json.loads((specs_dir / "acceptance_state.json").read_text(encoding="utf-8"))
+            first_agent = state["agents"][0]["agent_id"]
+            self.assertEqual(run_progress("acceptance-start-agent", str(specs_dir), first_agent).returncode, 0)
+            completed = run_progress(
+                "acceptance-complete-agent",
+                str(specs_dir),
+                first_agent,
+                "--result",
+                "PASS",
+                "--report",
+                "unit passed",
+            )
+            status = run_progress("acceptance-status", str(specs_dir))
+
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+            summary = json.loads(status.stdout)
+            self.assertNotIn(first_agent, summary["agents"]["pending_or_running"])
+            self.assertGreater(len(summary["agents"]["pending_or_running"]), 0)
+
+    def test_acceptance_fixes_do_not_append_original_tasks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            specs_dir = Path(tmp)
+            tasks = valid_feature_tasks().replace("- [ ] **T-001:**", "- [x] **T-001:**")
+            tasks = tasks.replace("- 状态: pending", "- 状态: done", 1)
+            tasks = tasks.replace("- 验证证据: pending", "- 验证证据: pytest passed", 1)
+            make_requirements_first(specs_dir, tasks=tasks)
+            init_progress(specs_dir)
+            self.assertEqual(run_progress("acceptance-init", str(specs_dir)).returncode, 0)
+            before = (specs_dir / "tasks.md").read_text(encoding="utf-8")
+            issue = run_progress(
+                "acceptance-record-issue",
+                str(specs_dir),
+                "--unit",
+                "U-001",
+                "--severity",
+                "P2",
+                "--title",
+                "Missing regression proof",
+                "--evidence",
+                "review report showed missing regression proof",
+            )
+            planned = run_progress("acceptance-plan-fixes", str(specs_dir))
+            after = (specs_dir / "tasks.md").read_text(encoding="utf-8")
+
+            self.assertEqual(issue.returncode, 0, issue.stdout + issue.stderr)
+            self.assertEqual(planned.returncode, 0, planned.stdout + planned.stderr)
+            self.assertEqual(before, after)
+            self.assertTrue((specs_dir / "acceptance-fixes.md").is_file())
+            self.assertIn("F-001", (specs_dir / "acceptance-fixes.md").read_text(encoding="utf-8"))
+
+    def test_acceptance_round_four_defers_p3_and_fixes_p2_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            specs_dir = Path(tmp)
+            tasks = valid_feature_tasks().replace("- [ ] **T-001:**", "- [x] **T-001:**")
+            tasks = tasks.replace("- 状态: pending", "- 状态: done", 1)
+            tasks = tasks.replace("- 验证证据: pending", "- 验证证据: pytest passed", 1)
+            make_requirements_first(specs_dir, tasks=tasks)
+            init_progress(specs_dir)
+            self.assertEqual(run_progress("acceptance-init", str(specs_dir)).returncode, 0)
+            state = json.loads((specs_dir / "acceptance_state.json").read_text(encoding="utf-8"))
+            state["round"] = 4
+            (specs_dir / "acceptance_state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            self.assertEqual(run_progress(
+                "acceptance-record-issue",
+                str(specs_dir),
+                "--unit",
+                "U-001",
+                "--severity",
+                "P2",
+                "--title",
+                "Blocking issue",
+                "--evidence",
+                "evidence for p2",
+            ).returncode, 0)
+            self.assertEqual(run_progress(
+                "acceptance-record-issue",
+                str(specs_dir),
+                "--unit",
+                "U-001",
+                "--severity",
+                "P3",
+                "--title",
+                "Non-blocking polish",
+                "--evidence",
+                "evidence for p3",
+            ).returncode, 0)
+            planned = run_progress("acceptance-plan-fixes", str(specs_dir))
+
+            self.assertEqual(planned.returncode, 0, planned.stdout + planned.stderr)
+            state = json.loads((specs_dir / "acceptance_state.json").read_text(encoding="utf-8"))
+            self.assertEqual([fix["severity"] for fix in state["fixes"]], ["P2"])
+            self.assertEqual([issue["severity"] for issue in state["deferred_issues"]], ["P3"])
 
     def test_task_graph_blocks_unmet_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
